@@ -13,6 +13,7 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_unregisterMenuCommand
+// @license MIT
 // ==/UserScript==
 
 /*
