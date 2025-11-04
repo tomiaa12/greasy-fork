@@ -1,13 +1,12 @@
 // ==UserScript==
-// @name         addLocalstorage2Headers
+// @name         请求头注入 (Storage2Header)
 // @namespace    http://tampermonkey.net/
-// @version      0.1
-// @description  可配置的注入器：从 localStorage 读 key 并注入到请求 header（支持 fetch & XHR）
+// @version      0.2
+// @description  可配置的注入器：从 localStorage 或 cookie 读 key 并注入到请求 header（支持 fetch & XHR）
 // @match        *://localhost.proxyman.io/*
 // @match        *://test.proxyman.io/*
-// @match        *://sit.mfosunhani.com/*
-// @match        *://uat.mfosunhani.com/*
-// @match        *://h5.mfosunhani.com/*
+// @match        *://*.mfosunhani.com/*
+// @match        *://*.fotechwealth.com/*
 // @run-at       document-start
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -18,8 +17,9 @@
 
 /*
   使用说明：
-  - 点击油猴图标，在当前脚本下拉菜单里选择“设置 localStorage Key”或“设置 Header 名称”进行配置。
+  - 点击油猴图标，在当前脚本下拉菜单里选择"设置 localStorage Key"或"设置 Header 名称"进行配置。
   - 修改保存后会自动刷新页面以应用新配置。
+  - 读取优先级：优先从 localStorage 读取，如果取不到则从 cookie 读取（使用相同的 key 名称）。
 */
 
 (function() {
@@ -35,7 +35,7 @@
 
   // 注册菜单命令：设置 localStorage key
   GM_registerMenuCommand('设置 localStorage Key (当前: ' + storedKey + ')', () => {
-    const v = prompt('请输入 localStorage key（用于读取 localStorage 中的键）:', storedKey);
+    const v = prompt('请输入 key 名称（优先从 localStorage 读取，取不到则从 cookie 读取）:', storedKey);
     if (v !== null) {
       GM_setValue('rndKey', v || DEFAULT_KEY);
       alert('localStorage key 已保存为：' + (v || DEFAULT_KEY) + '\n页面将会刷新以使其生效。');
@@ -86,16 +86,52 @@
       }
       W.__rnd_injector_installed = true;
 
-      // 读取 localStorage 对应 key 的值
+      // 从 cookie 读取值
+      function getCookie(name) {
+        try {
+          const value = '; ' + document.cookie;
+          const parts = value.split('; ' + name + '=');
+          if (parts.length === 2) {
+            return parts.pop().split(';').shift();
+          }
+        } catch (e) {}
+        return null;
+      }
+
+      // 读取值：优先从 localStorage，取不到则从 cookie
       function getRnd() {
-        try { return localStorage.getItem(window.__rnd_key || key); } catch (e) { return null; }
+        const keyName = window.__rnd_key || key;
+        try {
+          // 先尝试 localStorage
+          const value = localStorage.getItem(keyName);
+          if (value != null && value !== '') {
+            return value;
+          }
+          // localStorage 取不到，尝试从 cookie 读取
+          const cookieValue = getCookie(keyName);
+          if (cookieValue != null && cookieValue !== '') {
+            safeLog('[header-injector] localStorage 未找到，从 cookie 读取：', cookieValue);
+            return cookieValue;
+          }
+          return null;
+        } catch (e) {
+          // 如果 localStorage 失败，尝试 cookie
+          try {
+            const cookieValue = getCookie(keyName);
+            if (cookieValue != null && cookieValue !== '') {
+              safeLog('[header-injector] localStorage 读取失败，从 cookie 读取：', cookieValue);
+              return cookieValue;
+            }
+          } catch (e2) {}
+          return null;
+        }
       }
 
       // fetch wrapper
       function fetchWrapper(input, init) {
         try {
           const rnd = getRnd();
-          safeLog('[header-injector] fetch 被调用，localStorage 值：', rnd, '，input：', input);
+          safeLog('[header-injector] fetch 被调用，值：', rnd, '，input：', input);
           const headerNameLocal = window.__rnd_header_name || headerName;
           if (input instanceof Request) {
             const req = input.clone();
@@ -154,7 +190,7 @@
                 try {
                   const rnd = getRnd();
                   const headerNameLocal = window.__rnd_header_name || headerName;
-                  safeLog('[header-injector] XHR.send 被调用 ->', this.__rnd_method, this.__rnd_url, '，localStorage 值：', rnd, '，已有 headers：', this.__rnd_headers);
+                  safeLog('[header-injector] XHR.send 被调用 ->', this.__rnd_method, this.__rnd_url, '，值：', rnd, '，已有 headers：', this.__rnd_headers);
                   try {
                     if (typeof this.setRequestHeader === 'function') {
                       this.setRequestHeader(headerNameLocal, rnd == null ? '' : rnd);
