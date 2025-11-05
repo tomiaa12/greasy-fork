@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         请求头注入 (Storage2Header)
 // @namespace    http://tampermonkey.net/
-// @version      0.2
+// @version      0.4
 // @description  可配置的注入器：从 localStorage 或 cookie 读 key 并注入到请求 header（支持 fetch & XHR）
 // @match        *://localhost.proxyman.io/*
 // @match        *://test.proxyman.io/*
@@ -17,9 +17,10 @@
 
 /*
   使用说明：
-  - 点击油猴图标，在当前脚本下拉菜单里选择"设置 localStorage Key"或"设置 Header 名称"进行配置。
+  - 点击油猴图标，在当前脚本下拉菜单里选择"设置 localStorage Key"、"设置 Header 名称"或"切换日志开关"进行配置。
   - 修改保存后会自动刷新页面以应用新配置。
   - 读取优先级：优先从 localStorage 读取，如果取不到则从 cookie 读取（使用相同的 key 名称）。
+  - 日志开关：默认开启，可通过菜单命令切换。关闭后将不会输出任何 console.log 日志。
 */
 
 (function() {
@@ -32,6 +33,7 @@
   // 从 Tampermonkey 存储里读取（若无则使用默认）
   const storedKey = GM_getValue('rndKey', DEFAULT_KEY);
   const storedHeader = GM_getValue('headerName', DEFAULT_HEADER);
+  const enableLog = GM_getValue('enableLog', true); // 日志开关，默认开启
 
   // 注册菜单命令：设置 localStorage key
   GM_registerMenuCommand('设置 localStorage Key (当前: ' + storedKey + ')', () => {
@@ -53,30 +55,42 @@
     }
   });
 
+  // 注册菜单命令：切换日志开关
+  GM_registerMenuCommand('切换日志开关 (当前: ' + (enableLog ? '开启' : '关闭') + ')', () => {
+    const newValue = !enableLog;
+    GM_setValue('enableLog', newValue);
+    alert('日志已' + (newValue ? '开启' : '关闭') + '，页面将会刷新以使其生效。');
+    location.reload();
+  });
+
   // 注册菜单命令：重置为默认
   GM_registerMenuCommand('重置为默认配置', () => {
     if (confirm('确认重置为默认配置？（' + DEFAULT_KEY + ' / ' + DEFAULT_HEADER + '）')) {
       GM_setValue('rndKey', DEFAULT_KEY);
       GM_setValue('headerName', DEFAULT_HEADER);
+      GM_setValue('enableLog', true);
       alert('已重置为默认值，页面将刷新。');
       location.reload();
     }
   });
 
   // 构建要注入到页面上下文的脚本：把配置值以字面量传进去
-  const injectedCode = '(' + (function(key, headerName) {
-    // 注入到页面上下文后执行的代码（接收 key 与 headerName）
+  const injectedCode = '(' + (function(key, headerName, enableLog) {
+    // 注入到页面上下文后执行的代码（接收 key、headerName 和 enableLog）
     (function() {
       try {
         // 暴露到 window 便于调试
         window.__rnd_key = key || 'rndKey';
         window.__rnd_header_name = headerName || 'X-RndKey';
+        window.__rnd_enable_log = enableLog !== false; // 默认开启
       } catch (e) {}
 
       const W = window;
+      const logEnabled = window.__rnd_enable_log !== false;
 
-      // 日志辅助（中文）
+      // 日志辅助（中文），根据配置决定是否输出
       function safeLog(...args) {
+        if (!logEnabled) return;
         try { console.log.apply(console, args); } catch (e) {}
       }
 
@@ -248,7 +262,7 @@
 
       safeLog('[header-injector] 注入完成。localStorage key:', window.__rnd_key, ' header 名称:', window.__rnd_header_name);
     })();
-  }).toString() + ')(' + JSON.stringify(storedKey) + ', ' + JSON.stringify(storedHeader) + ');';
+  }).toString() + ')(' + JSON.stringify(storedKey) + ', ' + JSON.stringify(storedHeader) + ', ' + JSON.stringify(enableLog) + ');';
 
   // 注入到页面上下文（优先用 Blob 绕过 CSP）
   try {
@@ -257,13 +271,17 @@
     s.src = URL.createObjectURL(blob);
     s.onload = function() { URL.revokeObjectURL(this.src); this.remove(); };
     (document.head || document.documentElement).appendChild(s);
-    console.log('[header-injector] blob 脚本已注入（Tampermonkey 上下文）');
+    if (enableLog) {
+      console.log('[header-injector] blob 脚本已注入（Tampermonkey 上下文）');
+    }
   } catch (e) {
     // 回退 inline 注入
     const s2 = document.createElement('script');
     s2.textContent = injectedCode;
     (document.head || document.documentElement).appendChild(s2);
     setTimeout(() => s2.remove(), 0);
-    console.log('[header-injector] inline 脚本回退注入已完成（Tampermonkey 上下文）');
+    if (enableLog) {
+      console.log('[header-injector] inline 脚本回退注入已完成（Tampermonkey 上下文）');
+    }
   }
 })();
