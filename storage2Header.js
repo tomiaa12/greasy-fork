@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         请求头注入 (Storage2Header)
 // @namespace    http://tampermonkey.net/
-// @version      0.4
+// @version      0.5
 // @description  可配置的注入器：从 localStorage 或 cookie 读 key 并注入到请求 header（支持 fetch & XHR）
 // @match        *://localhost.proxyman.io/*
 // @match        *://test.proxyman.io/*
 // @match        *://*.mfosunhani.com/*
 // @match        *://*.fotechwealth.com/*
+// @match        *://*.fosunhanihk.com/*
 // @run-at       document-start
 // @grant        GM_getValue
 // @grant        GM_setValue
